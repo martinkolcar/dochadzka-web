@@ -172,7 +172,7 @@
     <div class="cam-switch-row" id="camSwitchRow">
       <button class="btn-switch" id="camSwitchBtn">Prepnúť kameru (predná / zadná)</button>
     </div>
-    <p class="hint">Vyber, či ide o príchod alebo odchod, potom namier kameru na QR kód na karte. Kamera vyžaduje HTTPS a povolenie prehliadača.</p>
+    <p class="hint">Vyber, či ide o príchod alebo odchod, potom namier kameru na QR kód na karte. Ak sa kód nedarí prečítať, skús kartu priblížiť bližšie ku kamere, zabezpeč dobré osvetlenie a drž ju chvíľu nehybne. Kamera vyžaduje HTTPS a povolenie prehliadača.</p>
 
     <div class="feedback" id="feedback"></div>
   </section>
@@ -342,25 +342,25 @@ const camSwitchBtn = document.getElementById('camSwitchBtn');
 let html5QrCode = null;
 let scanning = false;
 let activeMode = null;
-let cameras = [];
-let cameraIndex = 0;
+let currentFacing = 'environment'; // 'environment' = zadná, 'user' = predná
 
-async function ensureCameras(){
-  if(cameras.length) return cameras;
-  try{
-    cameras = await Html5Qrcode.getCameras();
-    const backIdx = cameras.findIndex(c => /back|rear|zadn|environment/i.test(c.label));
-    if(backIdx >= 0) cameraIndex = backIdx;
-  }catch(e){
-    cameras = [];
-  }
-  camSwitchRow.classList.toggle('active', cameras.length > 1);
-  return cameras;
-}
 function currentCameraConfig(){
-  if(cameras.length) return { deviceId: { exact: cameras[cameraIndex].id } };
-  return { facingMode: "environment" };
+  // facingMode funguje spo\u013eahlivo naprie\u010d takmer v\u0161etk\u00fdmi telef\u00f3nmi,
+  // na rozdiel od v\u00fdberu presn\u00e9ho device ID, ktor\u00e9 mnoh\u00e9 telef\u00f3ny
+  // nerozl\u00ed\u0161ia spo\u013eahlivo (predn\u00e1/zadn\u00e1 sa m\u00f4\u017eu tv\u00e1ri\u0165 ako jedna kamera).
+  return {
+    facingMode: currentFacing,
+    width: { ideal: 1920 },
+    height: { ideal: 1080 }
+  };
 }
+
+function updateCamSwitchLabel(){
+  camSwitchBtn.textContent = currentFacing === 'environment'
+    ? 'Prepnúť na prednú kameru'
+    : 'Prepnúť na zadnú kameru';
+}
+updateCamSwitchLabel();
 
 function resetScanButtons(){
   scanInBtn.textContent = 'Naskenovať príchod';
@@ -374,6 +374,7 @@ async function stopScan(){
     try{ await html5QrCode.stop(); }catch(e){}
   }
   readerDiv.classList.remove('active');
+  camSwitchRow.classList.remove('active');
   scanning = false;
   activeMode = null;
   resetScanButtons();
@@ -386,11 +387,11 @@ async function startScan(mode){
     await stopScan();
     if(wasMode === mode) return; // druhé kliknutie na to isté tlačidlo = zastaviť
   }
-  await ensureCameras();
 
   activeMode = mode;
   hideFeedback();
   readerDiv.classList.add('active');
+  camSwitchRow.classList.add('active');
   scanning = true;
 
   const btn = mode === 'prichod' ? scanInBtn : scanOutBtn;
@@ -402,7 +403,13 @@ async function startScan(mode){
     html5QrCode = new Html5Qrcode("reader");
     await html5QrCode.start(
       currentCameraConfig(),
-      { fps: 10, qrbox: 240 },
+      {
+        fps: 12,
+        qrbox: { width: 260, height: 260 },
+        aspectRatio: 1.0,
+        disableFlip: false,
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+      },
       async (decodedText) => {
         const usedMode = activeMode;
         await stopScan();
@@ -420,8 +427,8 @@ scanInBtn.addEventListener('click', () => startScan('prichod'));
 scanOutBtn.addEventListener('click', () => startScan('odchod'));
 
 camSwitchBtn.addEventListener('click', async () => {
-  if(cameras.length < 2) return;
-  cameraIndex = (cameraIndex + 1) % cameras.length;
+  currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+  updateCamSwitchLabel();
   if(scanning){
     const mode = activeMode;
     await stopScan();
