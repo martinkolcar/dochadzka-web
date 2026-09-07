@@ -350,8 +350,8 @@ function currentCameraConfig(){
   // nerozl\u00ed\u0161ia spo\u013eahlivo (predn\u00e1/zadn\u00e1 sa m\u00f4\u017eu tv\u00e1ri\u0165 ako jedna kamera).
   return {
     facingMode: currentFacing,
-    width: { ideal: 1920 },
-    height: { ideal: 1080 }
+    width: { ideal: 1280 },
+    height: { ideal: 720 }
   };
 }
 
@@ -378,6 +378,16 @@ async function stopScan(){
   scanning = false;
   activeMode = null;
   resetScanButtons();
+}
+
+async function releaseCamera(){
+  if(html5QrCode){
+    try{ await html5QrCode.stop(); }catch(e){}
+    try{ html5QrCode.clear(); }catch(e){}
+  }
+  html5QrCode = null;
+  // krátka pauza, aby prehliadač/OS stihol kameru naozaj uvoľniť
+  await new Promise(r => setTimeout(r, 250));
 }
 
 async function startScan(mode){
@@ -411,9 +421,8 @@ async function startScan(mode){
     await html5QrCode.start(
       currentCameraConfig(),
       {
-        fps: 12,
+        fps: 15,
         qrbox: { width: 260, height: 260 },
-        aspectRatio: 1.0,
         disableFlip: false,
         experimentalFeatures: { useBarCodeDetectorIfSupported: true }
       },
@@ -422,8 +431,7 @@ async function startScan(mode){
     );
   }catch(err1){
     console.warn('Prvý pokus o kameru zlyhal, skúšam jednoduchšie nastavenie:', err1);
-    // Skús to znova s minimálnym nastavením - niektoré zariadenia/prehliadače
-    // majú problém s vysokým rozlíšením alebo s aspectRatio obmedzením.
+    await releaseCamera(); // dôležité: uvoľniť kameru pred druhým pokusom
     try{
       html5QrCode = new Html5Qrcode("reader");
       await html5QrCode.start(
@@ -433,6 +441,7 @@ async function startScan(mode){
         onFrame
       );
     }catch(err2){
+      await releaseCamera();
       await stopScan();
       showFeedback('err', cameraErrorMessage(err2 || err1));
     }
