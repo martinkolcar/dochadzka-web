@@ -399,6 +399,13 @@ async function startScan(mode){
   btn.textContent = 'Zastaviť skenovanie';
   otherBtn.disabled = true;
 
+  const onSuccess = async (decodedText) => {
+    const usedMode = activeMode;
+    await stopScan();
+    await processId(decodedText, usedMode);
+  };
+  const onFrame = () => { /* ignorovať snímky bez kódu */ };
+
   try{
     html5QrCode = new Html5Qrcode("reader");
     await html5QrCode.start(
@@ -410,17 +417,49 @@ async function startScan(mode){
         disableFlip: false,
         experimentalFeatures: { useBarCodeDetectorIfSupported: true }
       },
-      async (decodedText) => {
-        const usedMode = activeMode;
-        await stopScan();
-        await processId(decodedText, usedMode);
-      },
-      () => { /* ignorovať snímky bez kódu */ }
+      onSuccess,
+      onFrame
     );
-  }catch(err){
-    await stopScan();
-    showFeedback('err', 'Kameru sa nepodarilo spustiť. Skontroluj povolenia prehliadača pre kameru.');
+  }catch(err1){
+    console.warn('Prvý pokus o kameru zlyhal, skúšam jednoduchšie nastavenie:', err1);
+    // Skús to znova s minimálnym nastavením - niektoré zariadenia/prehliadače
+    // majú problém s vysokým rozlíšením alebo s aspectRatio obmedzením.
+    try{
+      html5QrCode = new Html5Qrcode("reader");
+      await html5QrCode.start(
+        { facingMode: currentFacing },
+        { fps: 10, qrbox: 240 },
+        onSuccess,
+        onFrame
+      );
+    }catch(err2){
+      await stopScan();
+      showFeedback('err', cameraErrorMessage(err2 || err1));
+    }
   }
+}
+
+function cameraErrorMessage(err){
+  const name = err && err.name ? err.name : '';
+  const msg = err && err.message ? err.message : String(err);
+  console.error('Chyba kamery:', name, msg);
+
+  if(name === 'NotAllowedError' || /Permission/i.test(msg)){
+    return 'Prehliadač nemá povolený prístup ku kamere pre túto stránku. Over si nastavenia povolení prehliadača (ikona zámku/kamery vedľa adresy) a povoľ kameru.';
+  }
+  if(name === 'NotFoundError' || name === 'DevicesNotFoundError'){
+    return 'Na tomto zariadení sa nenašla žiadna kamera (skús prepnúť predná/zadná, alebo skús iné zariadenie).';
+  }
+  if(name === 'NotReadableError' || name === 'TrackStartError'){
+    return 'Kameru práve používa iná aplikácia alebo iná otvorená karta prehliadača. Zavri ich a skús znova.';
+  }
+  if(name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError'){
+    return 'Zvolená kamera nepodporuje požadované nastavenie. Skús prepnúť na druhú kameru tlačidlom nižšie.';
+  }
+  if(name === 'SecurityError' || /https/i.test(msg)){
+    return 'Kamera funguje len cez zabezpečené pripojenie (https://). Skontroluj, či adresa appky začína https://.';
+  }
+  return `Kameru sa nepodarilo spustiť (${name || 'neznáma chyba'}: ${msg}). Skontroluj povolenia prehliadača pre kameru.`;
 }
 
 scanInBtn.addEventListener('click', () => startScan('prichod'));
